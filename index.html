@@ -19,6 +19,11 @@ button.secondary{background:transparent;color:var(--green)}button:disabled{opaci
 .status{min-height:1.65rem;font-weight:650;color:var(--green);overflow-wrap:anywhere}.status[data-error=true]{color:#a1261c}progress,audio{width:100%}progress{accent-color:var(--green)}
 a{color:var(--green)}footer{padding-bottom:2rem;font-size:.9rem}.tag{display:inline-block;background:var(--accent);color:var(--ink);border-radius:.4rem;padding:.15rem .5rem;font-weight:700;font-size:.85rem}
 .hint{font-weight:400;color:var(--muted)}
+.syll{font-size:clamp(1.05rem,4.4vw,1.4rem);font-weight:600;color:#2d4a3f;margin:.5rem 0 0;letter-spacing:.01em}
+.fr{font-size:1rem;font-style:italic;font-weight:400;color:var(--muted);margin:.5rem 0 0}
+.lbl{display:block;font-size:.72rem;font-style:normal;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.1rem}
+.big{font-size:1.15rem;min-height:3.4rem;padding:.7rem 1.4rem}
+.score{font-weight:700;color:var(--green)}
 [hidden]{display:none!important}
 </style>
 <header><span class="mark" aria-hidden="true">B</span><span>IA Bambara</span></header>
@@ -50,17 +55,23 @@ a{color:var(--green)}footer{padding-bottom:2rem;font-size:.9rem}.tag{display:inl
     <span id="demo-badge" class="tag" hidden>Mode essai</span>
     <div class="row"><strong id="progress-label"></strong><span id="timer" aria-hidden="true"></span></div>
     <progress id="progress" aria-label="Lectures envoyées"></progress>
-    <div id="phrase" class="phrase" lang="bm" tabindex="-1"></div>
-    <p>Lisez la phrase telle qu’elle est écrite. Parlez naturellement et arrêtez l’enregistrement à la fin.</p>
+    <div class="phrase" tabindex="-1" id="phrase-box">
+      <span class="lbl">Bambara</span><div id="phrase" lang="bm"></div>
+      <div class="syll"><span class="lbl">Prononciation</span><span id="syllabes"></span></div>
+      <div class="fr" id="fr-box"><span class="lbl">En français</span><span id="traduction"></span></div>
+    </div>
+    <div class="row"><button id="listen-ia" class="secondary" type="button" hidden>🔊 Écouter la phrase (voix IA)</button></div>
+    <p>Lisez la phrase en bambara à voix haute, naturellement, avec votre accent.</p>
     <div class="row">
-      <button id="record">Enregistrer</button>
-      <button id="stop" hidden>Arrêter</button>
+      <button id="record" class="big">🎙️ Enregistrer</button>
+      <button id="stop" class="big" hidden>⏹️ Arrêter</button>
     </div>
     <audio id="preview" controls hidden aria-label="Réécouter la prise"></audio>
     <div class="row" id="take-actions" hidden>
-      <button id="send">Envoyer la lecture</button>
-      <button id="redo" class="secondary">Recommencer la prise</button>
+      <button id="send" class="big">✅ Envoyer</button>
+      <button id="redo" class="secondary">↩️ Refaire</button>
     </div>
+    <p id="score" class="score"></p>
     <p id="speaker"></p>
   </section>
 
@@ -102,6 +113,7 @@ a{color:var(--green)}footer{padding-bottom:2rem;font-size:.9rem}.tag{display:inl
 <footer><a href="?equipe=1" id="team-link">Accès équipe</a><a href="./" id="participant-link" hidden>Retour à la collecte</a></footer>
 
 <script src="./config.js"></script>
+<script src="./phonetique.js"></script>
 <script>
 "use strict";
 const config = window.BAMBARA_COLLECTION || {};
@@ -174,6 +186,22 @@ let timer = null;
 let openingMic = false;
 let demoMode = false;
 let invitation = null;
+let phraseInfo = {};
+const phraseInfoReady = fetch("./phrases.json", {cache:"no-cache"}).then((r) => r.ok ? r.json() : {})
+  .then((data) => { phraseInfo = data || {}; }).catch(() => {});
+const iaPlayer = new Audio();
+
+function infoFor(text) { return phraseInfo[String(text || "").trim()] || {}; }
+function iaUrl(text) { const info = infoFor(text); return info.a ? "./voix/" + info.a + ".mp3" : ""; }
+
+function totalRead(add = 0) {
+  let n = 0;
+  try {
+    n = (Number(localStorage.getItem("bambara-total")) || 0) + add;
+    if (add) localStorage.setItem("bambara-total", String(n));
+  } catch {}
+  return n;
+}
 
 function clearTake() {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -205,18 +233,34 @@ function showNext() {
   byId("progress").value = done;
   byId("progress-label").textContent = "Lecture " + (done + 1) + " sur " + session.prompts.length;
   byId("phrase").textContent = current.text;
-  byId("phrase").focus();
+  const info = infoFor(current.text);
+  byId("syllabes").textContent = window.syllabesBambara ? window.syllabesBambara(current.text) : "";
+  byId("traduction").textContent = info.fr || "";
+  byId("fr-box").hidden = !info.fr;
+  iaPlayer.pause();
+  byId("listen-ia").hidden = !iaUrl(current.text);
+  const total = totalRead();
+  byId("score").textContent = total ? "⭐ Vous avez déjà lu " + total + " phrase" + (total > 1 ? "s" : "") + " sur ce téléphone." : "";
+  byId("phrase-box").focus();
   byId("record").hidden = false;
   byId("record").disabled = false;
   byId("speaker").textContent = demoMode ? "" : "Votre code : " + session.speaker;
 }
 
-function showSession(data, demo) {
+byId("listen-ia").onclick = () => {
+  const url = current && iaUrl(current.text);
+  if (!url) return;
+  iaPlayer.src = url;
+  iaPlayer.play().catch(() => status("Lecture de la voix IA impossible.", true));
+};
+
+async function showSession(data, demo) {
+  await phraseInfoReady;
   demoMode = demo;
   session = data;
   byId("welcome").hidden = true;
   byId("demo-badge").hidden = !demo;
-  byId("send").textContent = demo ? "Terminer l’essai" : "Envoyer la lecture";
+  byId("send").textContent = demo ? "✅ Terminer l’essai" : "✅ Envoyer";
   showNext();
 }
 
@@ -240,7 +284,7 @@ byId("join").onsubmit = async (event) => {
       if (!gender || !String(error.message).includes("(404)")) throw error;
       data = await rpc("open_readings", args, token);
     }
-    showSession(data, false);
+    await showSession(data, false);
     status("");
   } catch (error) { status(error.message, true); }
   finally { byId("start").disabled = false; }
@@ -383,7 +427,8 @@ byId("send").onclick = async () => {
       }
     }
     current.done = true;
-    status("Lecture reçue.");
+    const total = totalRead(1);
+    status(total % 10 === 0 ? "🎉 Bravo, " + total + " phrases lues ! Merci." : "Lecture reçue, merci !");
     showNext();
   } catch (error) { status(error.message + " La prise reste disponible sur cette page.", true); }
   finally { byId("send").disabled = byId("redo").disabled = false; }
@@ -395,7 +440,7 @@ byId("more").onclick = async () => {
   status("Préparation de nouvelles phrases…");
   try {
     const data = await rpc("more_readings", {}, await tokenFor(participantKey));
-    showSession(data, false);
+    await showSession(data, false);
     status("");
   } catch (error) { status(error.message, true); }
   finally { button.disabled = false; }
@@ -431,10 +476,21 @@ function queueCard(row, token) {
   const card = addElement(byId("queue"),"article");
   card.className = "card";
   addElement(card,"h2",row.sentence_bm);
+  if (window.syllabesBambara) addElement(card,"p",window.syllabesBambara(row.sentence_bm)).className = "syll";
+  const ia = iaUrl(row.sentence_bm);
+  if (ia) {
+    const iaRow = addElement(card,"div");
+    iaRow.className = "row";
+    addElement(iaRow,"span","Voix IA :").className = "hint";
+    const iaAudio = addElement(iaRow,"audio");
+    iaAudio.controls = true;
+    iaAudio.preload = "none";
+    iaAudio.src = ia;
+  }
   const participant = row.participant_name ? row.participant_name + " · " + row.speaker : row.speaker;
   addElement(card,"p",participant + " · " + (row.verdict === "approved" ? "Validée" :
-    row.verdict === "rejected" ? "Refusée" : row.transcribed ? "À valider" : "À transcrire"));
-  const listen = addElement(card,"button","Charger l’audio");
+    row.verdict === "rejected" ? "Refusée" : "À vérifier"));
+  const listen = addElement(card,"button","▶️ Écouter la lecture");
   listen.className = "secondary";
   listen.onclick = async () => {
     listen.disabled = true;
@@ -471,9 +527,7 @@ function queueCard(row, token) {
   addElement(label,"span","Mots français prononcés dans la lecture");
   const controls = addElement(card,"div");
   controls.className = "row";
-  const actions = row.transcribed && !row.mine
-    ? [["approve","Valider"],["reject","Refuser"]]
-    : [["transcribe","Enregistrer la transcription"]];
+  const actions = [["approve","✅ Valider"],["reject","❌ Refuser"]];
   for (const [action,title] of actions) {
     const button = addElement(controls,"button",title);
     if (action === "reject") button.className = "secondary";
@@ -496,6 +550,7 @@ byId("load-queue").onclick = async () => {
   const load = byId("load-queue");
   load.disabled = true;
   try {
+    await phraseInfoReady;
     const token = await teamAccess();
     for (const url of queueUrls) URL.revokeObjectURL(url);
     queueUrls.clear();
@@ -588,7 +643,18 @@ byId("export").onclick = async () => {
       const duration = assertReadingWave(bytes);
       const path = "audio/" + row.id + ".wav";
       files.push({name:path,data:bytes});
-      manifest.push(JSON.stringify({id:row.id,audio:path,speaker:row.speaker,gender:row.gender ?? "",
+      let iaPath = "";
+      const iaSource = iaUrl(row.sentence_bm);
+      if (iaSource) {
+        iaPath = "voix_ia/" + iaSource.split("/").pop();
+        if (!files.some((file) => file.name === iaPath)) {
+          try { files.push({name:iaPath,data:new Uint8Array(await (await fetch(iaSource)).arrayBuffer())}); }
+          catch { iaPath = ""; }
+        }
+      }
+      manifest.push(JSON.stringify({id:row.id,audio:path,audio_ia:iaPath,sentence_bm:row.sentence_bm,
+        syllabes_fr:window.syllabesBambara ? window.syllabesBambara(row.sentence_bm) : "",
+        speaker:row.speaker,gender:row.gender ?? "",
         prompt_id:row.prompt_id ?? null,register:"lu",
         transcript_bm:row.transcript_bm,translation_fr:row.translation_fr,code_switching:row.code_switching,duration_s:duration}));
     }
@@ -676,7 +742,7 @@ async function init() {
   if (location.hash) history.replaceState(null,"",location.pathname+location.search);
   if (modeTeam) {
     byId("heading").textContent = "Validation des lectures";
-    byId("intro").textContent = "Écoutez, transcrivez puis faites valider les prises par une deuxième personne.";
+    byId("intro").textContent = "Écoutez chaque lecture. Si la personne a bien lu la phrase, cliquez sur Valider. Corrigez le texte seulement si elle a lu autre chose.";
     byId("welcome").hidden = byId("team-link").hidden = true;
     byId("team").hidden = byId("participant-link").hidden = false;
     if (!ready) return status("Le service de collecte est en cours de configuration.");
@@ -704,7 +770,7 @@ async function init() {
       try {
         const token = await tokenFor(participantKey);
         const data = await rpc("open_readings", {}, token);
-        if (data) showSession(data, false);
+        if (data) await showSession(data, false);
       } finally { byId("start").disabled = false; }
     }
   } else {
