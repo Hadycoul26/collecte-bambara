@@ -56,6 +56,7 @@ label{display:block;margin:.6rem 0;font-weight:650}
 @keyframes flash{10%{opacity:.85}100%{opacity:0}}
 .daron{position:absolute;bottom:4%;right:-40%;font-size:7.5rem;z-index:5;transition:right .5s ease-out;line-height:1}
 .daron.in{right:2%}
+.bobos span{position:absolute;z-index:2;font-size:clamp(1.2rem,5vw,1.7rem);pointer-events:none}
 /* phrase */
 .phrase{border-left:.35rem solid var(--green);background:#eef7ef;border-radius:.5rem;padding:.7rem .8rem;margin:.3rem 0}
 .bm{font-size:clamp(1.25rem,5.4vw,1.6rem);font-weight:800;line-height:1.25;overflow-wrap:anywhere}
@@ -117,6 +118,7 @@ a{color:var(--green)}
           <circle cx="58" cy="176" r="9" fill="var(--metal)" stroke="#40546b" stroke-width="4"/><circle cx="142" cy="176" r="9" fill="var(--metal)" stroke="#40546b" stroke-width="4"/></g>
         <g id="damage"></g>
       </svg>
+      <div class="bobos" id="bobos"></div>
       <div class="flash" id="flash"></div>
     </div>
     <div class="status" id="status" role="status" aria-live="polite"></div>
@@ -128,6 +130,7 @@ a{color:var(--green)}
     </div>
 
     <div id="step-play">
+      <div class="row"><button id="hear" class="ghost" type="button" style="flex:1 1 100%" hidden>🔊 Écouter la phrase (voix IA)</button></div>
       <div class="row">
         <button id="rec" class="big">🎙️ Lis la phrase à Toto</button>
         <button id="stop" class="big" hidden style="background:var(--red)">⏹️ J’ai fini</button>
@@ -153,6 +156,11 @@ a{color:var(--green)}
   </section>
 </div>
 
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module" src="bulbo/toto3d.js"></script>
 <script src="../config.js"></script>
 <script src="../phonetique.js"></script>
 <script>
@@ -243,10 +251,17 @@ const SFX = {
 
 // ---------- Toto : visage, effets ----------
 const stage = $("stage"), robot = $("robot");
-function face(kind) {
+// Toto en 3D (bulbo/toto3d.js) quand il est chargé ; sinon le robot dessiné ci-dessus.
+const T3 = (f, ...a) => window.Toto3D?.[f]?.(...a);
+const pick = (l) => l[Math.floor(Math.random() * l.length)];
+const EXPR = {normal:["neutre"], happy:["joyeux"], dizzy:["sonne","aie"], sad:["triste"]};
+// kind : le visage du robot dessiné ; expr : l'expression de Bulbo (sinon tirée de kind)
+function face(kind, expr) {
   for (const k of ["normal","happy","dizzy","sad"]) $("eyes-" + k).hidden = k !== kind;
+  T3("expr", expr || pick(EXPR[kind]));
 }
-function anim(cls, ms = 700) { robot.classList.remove(cls); void robot.getBoundingClientRect(); robot.classList.add(cls); setTimeout(() => robot.classList.remove(cls), ms); }
+function anim(cls, ms = 700) { robot.classList.remove(cls); void robot.getBoundingClientRect(); robot.classList.add(cls); setTimeout(() => robot.classList.remove(cls), ms); T3("anim", cls, ms); }
+function reading(on) { robot.classList.toggle("reading", on); T3("etat", "lit", on); }
 function shake() { stage.classList.remove("shake"); void stage.offsetWidth; stage.classList.add("shake"); }
 function flash(color = "#fff") { const f = $("flash"); f.style.background = color; f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
 function burst(chars, n = 6) {
@@ -275,9 +290,28 @@ function drawDamage() {
     '<rect x="40" y="128" width="20" height="8" fill="#c9a96b" transform="rotate(-20 50 132)"/>', '<circle cx="72" cy="196" r="7" fill="#5a6b7c"/>'];
   g.innerHTML = marks.slice(0, Math.min(marks.length, damage)).join("");
   $("bulb").setAttribute("fill", damage >= 4 ? "#555" : "#ff5a4e");
+  T3("degats", damage);
+  if (window.Toto3D) {            // pansements posés sur la scène, autour de la tête de Bulbo
+    const spots = [[38,20,-20],[58,30,15],[44,44,-8],[54,12,30],[47,60,0]];
+    $("bobos").innerHTML = spots.slice(0, Math.min(spots.length, damage))
+      .map(([x,y,r]) => `<span style="left:${x}%;top:${y}%;transform:rotate(${r}deg)">🩹</span>`).join("");
+  }
 }
 function bubble(html, ms) {
   const b = $("bubble"); b.innerHTML = html; b.classList.add("on");
+  // Toto dit une phrase SANS fichier son (« Merci chef ! »…) : il la « dit » quand même, lèvres et tête vers nous
+  clearInterval(bubble.bla); T3("etat", "parleNous", false);
+  if (window.Toto3D && /^🤖/.test(html) && player.paused) {
+    const texte = b.textContent.replace(/[^\p{L}]/gu, "");
+    let n = Math.min(40, Math.round(texte.length / 2.3));          // à peu près une syllabe pour 2,3 lettres
+    if (n > 1) {
+      T3("etat", "parleNous", true);
+      bubble.bla = setInterval(() => {
+        if (n-- <= 0 || !player.paused) { clearInterval(bubble.bla); T3("parle", null); T3("etat", "parleNous", false); return; }
+        T3("parle", n % 4 === 3 ? .03 : .25 + Math.random() * .6, Math.random());
+      }, 120);
+    }
+  }
   clearTimeout(bubble.t); if (ms) bubble.t = setTimeout(() => b.classList.remove("on"), ms);
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -290,17 +324,26 @@ function hookAnalyser() {
 }
 function talking(on) {
   cancelAnimationFrame(mouthRaf); const m = $("mouth");
-  if (!on) { m.setAttribute("height", 6); m.setAttribute("y", 108); for (const w of document.querySelectorAll("#bubble .w")) w.classList.remove("cur"); return; }
-  const buf = new Uint8Array(512);
+  if (!on) { m.setAttribute("height", 6); m.setAttribute("y", 108); T3("parle", null); for (const w of document.querySelectorAll("#bubble .w")) w.classList.remove("cur"); return; }
+  const buf = new Uint8Array(512), freq = new Uint8Array(256);
   const words = [...document.querySelectorAll("#bubble .w")];
   const loop = () => {
-    let h;
-    if (analyser) { analyser.getByteTimeDomainData(buf); let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2; h = 3 + Math.min(18, Math.sqrt(sum / buf.length) * 90); }
+    let h, clair = .4;
+    if (analyser) {
+      analyser.getByteTimeDomainData(buf); let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2; h = 3 + Math.min(18, Math.sqrt(sum / buf.length) * 90);
+      // la part des aigus (1 à 4 kHz) contre les graves (200 Hz à 1 kHz) : « i », « é » clairs ; « a », « o », « ou » sourds
+      analyser.getByteFrequencyData(freq);
+      const bin = audioCtx().sampleRate / analyser.fftSize; let lo = 0, hi = 0;
+      for (let i = 1; i < freq.length; i++) { const f = i * bin; if (f >= 200 && f < 1000) lo += freq[i]; else if (f >= 1000 && f < 4000) hi += freq[i] * .45; }
+      clair = hi / (lo + hi + 1);
+    }
     else h = 4 + Math.random() * 12;
     m.setAttribute("height", h); m.setAttribute("y", 111 - h / 2);
+    T3("parle", (h - 3) / 18, clair);
     if (words.length && player.duration > 0) {       // karaoké : le mot que Toto lit s'allume
       const k = Math.min(words.length - 1, Math.floor(player.currentTime / player.duration * words.length));
       words.forEach((w, i) => w.classList.toggle("cur", i === k));
+      T3("ligneLue", Math.min(3, Math.floor(k / Math.max(1, words.length) * 4)));
     }
     mouthRaf = requestAnimationFrame(loop);
   };
@@ -347,13 +390,13 @@ const PUNISH = [
   {id:"flick", e:"👆", n:"Pichenette", m:.08, fx: async () => { SFX.flick(); anim("hit",450); burst(["💢"],2); }},
   {id:"slap", e:"✋", n:"Claque", m:.14, fx: async () => { const p = await prop("✋"); SFX.slap(); anim("hit",450); shake(); burst(["💥","⭐"],4); p.remove(); }},
   {id:"sandal", e:"🩴", n:"Sandale", m:.2, fx: async () => { const p = await prop("🩴"); SFX.slap(); anim("hit",450); shake(); burst(["💥","💫"],5); damage++; p.remove(); }},
-  {id:"water", e:"🪣", n:"Seau d’eau", m:.22, fx: async () => { const p = await prop("🪣","top"); SFX.splash(); burst(["💧","💦","💧"],10); robot.classList.add("wet"); await wait(400); SFX.zap(); anim("zap",700); setTimeout(() => robot.classList.remove("wet"), 1800); damage++; p.remove(); }},
+  {id:"water", e:"🪣", n:"Seau d’eau", m:.22, fx: async () => { const p = await prop("🪣","top"); SFX.splash(); burst(["💧","💦","💧"],10); robot.classList.add("wet"); T3("etat","mouille",true); await wait(400); SFX.zap(); anim("zap",700); setTimeout(() => { robot.classList.remove("wet"); T3("etat","mouille",false); }, 1800); damage++; p.remove(); }},
   {id:"hammer", e:"🔨", n:"Marteau", m:.3, fx: async () => { const p = await prop("🔨","top"); SFX.clang(); anim("squash",500); shake(); burst(["🔩","⚙️","💥"],6); damage++; p.remove(); }},
   {id:"zap", e:"⚡", n:"Décharge", m:.35, fx: async () => { flash("#ffe95a"); SFX.zap(); anim("zap",800); burst(["⚡","💥"],8); await wait(500); damage++; }},
   {id:"kick", e:"🦶", n:"Coup de pied", m:.3, fx: async () => { SFX.bonk(); anim("fly",1100); shake(); burst(["💫","⭐"],4); await wait(1000); damage++; }},
   {id:"daron", e:"👨🏿‍🦳", n:"LE DARON", m:.7, ultimate:true, fx: async () => {
     const d = document.createElement("div"); d.className = "daron"; d.textContent = "👨🏿‍🦳"; stage.append(d);
-    bubble("😨 Non… pas le daron…", 0); await wait(50); d.classList.add("in"); SFX.daron(); await wait(700);
+    bubble("😨 Non… pas le daron…", 0); T3("expr","peur"); await wait(50); d.classList.add("in"); SFX.daron(); await wait(700);
     for (let i = 0; i < 3; i++) { flash(); anim("hit",350); shake(); burst(["🩴","💥","💫"],5); await wait(350); }
     damage += 2; await wait(300); d.classList.remove("in"); await wait(500); d.remove(); }}
 ];
@@ -373,10 +416,14 @@ const DIT = {   // répliques fixes de Toto (voix du modèle, toto/dit_*.mp3)
   compris: {bm:"N ma a faamu.", fr:"J’ai pas compris."},
   encore:  {bm:"A kalan tugun !", fr:"Relis-la encore !"}
 };
-async function dit(key, extra = "") {
+const DIT_VISAGE = {repete:"serieux", compris:"pas_compris", encore:"sournois"};
+async function dit(key, extra = "") {        // Toto NOUS parle : tête relevée vers nous, lèvres sur sa voix
   const d = DIT[key];
-  bubble("🤖 <b>" + esc(d.bm) + '</b><span class="bm-line">(' + esc(d.fr) + ")" + (extra ? " " + esc(extra) : "") + "</span>", 0);
-  await play("../toto/dit_" + key + ".mp3");
+  T3("expr", DIT_VISAGE[key]);
+  bubble("<b>" + esc(d.bm) + '</b><span class="bm-line">(' + esc(d.fr) + ")" + (extra ? " " + esc(extra) : "") + "</span>", 0);
+  $("bubble").insertAdjacentText("afterbegin", "🤖 ");
+  T3("etat", "parleNous", true);
+  try { await play("../toto/dit_" + key + ".mp3"); } finally { T3("etat", "parleNous", false); }
 }
 let lastAudio = "";
 async function totoReads(intro = "") {
@@ -384,10 +431,10 @@ async function totoReads(intro = "") {
   const lines = totoLines[num] || [current.text, current.text, current.text];
   lastVariant = heard === 0 ? 0 : level;
   lastAudio = num ? "../toto/" + num + "_" + lastVariant + ".mp3" : "";
-  face("normal"); robot.classList.add("reading");
+  face("normal", lastVariant === 0 ? "lit_effort" : "lit"); reading(true);
   bubble((intro ? '<span class="bm-line">' + esc(intro) + "</span>" : "") + "🤖 " + readingHtml(lines[lastVariant], current.text), 0);
   await play(lastAudio);
-  robot.classList.remove("reading");
+  reading(false); face("normal", lastVariant === 2 ? "fier" : lastVariant === 1 ? "pensif" : "pas_compris");
   $("judge").hidden = false;
   calling(null);
 }
@@ -406,7 +453,7 @@ async function react(kind, tool) {
     const correct = lastVariant === 2;
     await tool.fx(); drawDamage();
     if (kind === "reward") {
-      face("happy");
+      face("happy", correct ? pick(["fier","joyeux","triomphe"]) : pick(["narquois","sournois"]));
       if (correct) {
         setMotivation(motivation + tool.m); knewIt = true;
         bubble("🤖 Merci chef ! " + (damage >= 3 ? "Bip… j’ai un peu mal partout." : "Je la connais maintenant !") + '<span class="bm-line">Passe à la suite quand tu veux.</span>', 0);
@@ -416,11 +463,11 @@ async function react(kind, tool) {
         setMotivation(motivation - .1);
         bubble("🤖 Hihi, j’avais faux mais tu m’as félicité 😏", 0);
         setScore(-5, "Il s’est trompé ! Regarde les mots soulignés.");
-        await wait(1600); face("normal"); await dit("encore");
+        await wait(1600); face("normal", "sournois"); await dit("encore");
         calling("rec");
       }
     } else if (correct) {
-      face("sad"); SFX.sad(); setMotivation(motivation - .15);
+      face("sad", pick(["larmes","vexe"])); SFX.sad(); setMotivation(motivation - .15);
       setScore(-5, "Il avait juste lu ! Toto est vexé.");
       if (Math.random() < .35) { level = 1; bubble("🤖 Mais j’avais bon !! 😭 Tu m’as tout embrouillé…", 0); }
       else bubble("🤖 Mais… j’avais bon !! 😭", 0);
@@ -439,7 +486,7 @@ async function react(kind, tool) {
         await wait(500); await dit("repete", "Lis-lui la phrase encore une fois.");
         calling("rec");
       } else {
-        await wait(500); await dit("compris", "Lis-la-lui plus lentement.");
+        await wait(500); face("normal", "pas_compris"); await dit("compris", "Lis-la-lui plus lentement.");
         calling("rec");
       }
     }
@@ -450,7 +497,7 @@ function showPhrase() {
   const done = session.prompts.filter(p => p.done).length;
   current = session.prompts.find(p => !p.done);
   if (!current) {
-    show("end"); face("happy"); anim("happy", 1300); SFX.win();
+    show("end"); face("happy", "triomphe"); anim("happy", 1300); SFX.win();
     $("learned").textContent = state.learned;
     $("end-text").textContent = "Score : " + state.score + " ⭐. Merci, chaque phrase lue entraîne la vraie IA bambara.";
     bubble("🤖 J’ai fini ! Encore ?", 0);
@@ -462,6 +509,7 @@ function showPhrase() {
   $("syll").textContent = window.syllabesBambara ? window.syllabesBambara(current.text) : "";
   const info = infoFor(current.text);
   $("fr").textContent = info.fr || ""; $("fr-box").hidden = !info.fr;
+  $("hear").hidden = !info.a;
   face(damage >= 4 ? "dizzy" : "normal");
   bubble("🤖 Bip ! Lis-moi cette phrase sur ma tablette, je vais essayer.", 0);
   show("play"); status(""); calling("rec");
@@ -483,6 +531,33 @@ $("ask").onclick = async () => {
 
 // ---------- enregistrement ----------
 let recorder = null, mic = null, timer = null, startedAt = 0;
+// Toto ÉCOUTE le joueur : penché vers lui, antennes tendues qui frémissent au son du micro, il hoche la tête
+let micAnalyser = null, micRaf = 0, micSrc = null;
+// flux : le micro (MediaStream) ou la voix IA (élément audio) ; null = il arrête d'écouter
+let iaSrc = null;
+function ecouter(flux) {
+  cancelAnimationFrame(micRaf); if (micSrc !== iaSrc) { try { micSrc?.disconnect(); } catch {} } micSrc = null;
+  if (!flux) { T3("etat", "ecoute", false); return; }
+  T3("etat", "ecoute", true); T3("expr", "pensif");
+  try {
+    const c = audioCtx();
+    micAnalyser = micAnalyser || c.createAnalyser(); micAnalyser.fftSize = 512;
+    if (flux instanceof HTMLMediaElement) {        // une seule source par élément audio : créée une fois, gardée
+      if (!iaSrc) { iaSrc = c.createMediaElementSource(flux); iaSrc.connect(c.destination); iaSrc.connect(micAnalyser); }
+      micSrc = iaSrc;
+    } else { micSrc = c.createMediaStreamSource(flux); micSrc.connect(micAnalyser); }
+  } catch { return; }
+  const b = new Uint8Array(512); let parle = 0;
+  const boucle = () => {
+    micAnalyser.getByteTimeDomainData(b); let s = 0; for (const v of b) s += ((v - 128) / 128) ** 2;
+    const niv = Math.sqrt(s / b.length) * 4;
+    T3("entend", niv);
+    parle = niv > .12 ? Math.min(60, parle + 1) : Math.max(0, parle - 1);
+    T3("expr", parle > 8 ? "surpris" : "pensif");           // il ouvre grand les yeux quand on lui lit (après ~0,15 s de voix)
+    micRaf = requestAnimationFrame(boucle);
+  };
+  boucle();
+}
 function encodeWave(samples) {
   const buf = new ArrayBuffer(44 + samples.length*2), v = new DataView(buf);
   const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o+i, c.charCodeAt(0)));
@@ -506,13 +581,14 @@ async function toWave(chunks, mime) {
     return encodeWave((await off.startRendering()).getChannelData(0));
   } finally { await c.close(); }
 }
-function release() { clearInterval(timer); mic?.getTracks().forEach(t => t.stop()); mic = null; recorder = null; $("stop").hidden = true; $("rec").hidden = false; $("ask").disabled = $("next").disabled = false; }
+function release() { clearInterval(timer); ecouter(null); mic?.getTracks().forEach(t => t.stop()); mic = null; recorder = null; $("stop").hidden = true; $("rec").hidden = false; $("ask").disabled = $("next").disabled = false; }
 $("rec").onclick = async () => {
   if (recorder || busy || !current) return;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return status("Ce navigateur ne permet pas d’utiliser le micro.", true);
   audioCtx(); $("rec").disabled = true;
   try {
     mic = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1}});
+    ecouter(mic);
     const type = ["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus"].find(t => MediaRecorder.isTypeSupported(t));
     recorder = type ? new MediaRecorder(mic,{mimeType:type}) : new MediaRecorder(mic);
     const chunks = [], active = recorder;
@@ -520,12 +596,35 @@ $("rec").onclick = async () => {
     active.onstop = async () => { release(); await afterReading(chunks, active.mimeType || chunks[0]?.type || ""); };
     active.start(); startedAt = performance.now();
     $("rec").hidden = true; $("stop").hidden = false; $("ask").disabled = $("next").disabled = true; calling(null);
-    bubble("🤖 👂 J’écoute…", 0);
+    bubble("🤖 👂 J’écoute…", 0); T3("expr","pensif");
     timer = setInterval(() => { if (performance.now() - startedAt >= maxMs && active.state === "recording") active.stop(); }, 200);
   } catch { release(); status("Impossible d’ouvrir le micro. Autorise-le et réessaie.", true); }
   finally { $("rec").disabled = false; }
 };
 $("stop").onclick = () => { if (recorder?.state === "recording") recorder.stop(); };
+
+// 🔊 la phrase lue par la VOIX IA du projet (voix/NNN.mp3, comme la page classique). Ce n'est pas Toto qui la dit :
+// il l'ÉCOUTE (même attitude que quand le joueur lui lit), bouche fermée. Ça n'apprend rien à Toto : seule la
+// lecture du joueur compte (c'est elle qui est enregistrée).
+const voixIA = new Audio();
+const iaUrl = (t) => { const a = infoFor(t).a; return a ? "../voix/" + a + ".mp3" : ""; };
+$("hear").onclick = async () => {
+  const url = current && iaUrl(current.text);
+  if (!url || busy || recorder) return;
+  lock(true); calling(null);
+  try {
+    audioCtx(); voixIA.src = url;
+    bubble("👂 <i>Toto écoute la phrase…</i>", 0);
+    ecouter(voixIA);
+    await voixIA.play();
+    await new Promise(r => { voixIA.onended = r; voixIA.onerror = r; setTimeout(r, 15000); });
+  } catch { status("Lecture de la voix IA impossible.", true); }
+  finally {
+    ecouter(null); lock(false);
+    face("normal", "joyeux"); bubble("🤖 Oh, c’est comme ça qu’on dit ! À toi de me la lire maintenant.", 0);
+    calling("rec");
+  }
+};
 
 async function afterReading(chunks, mime) {
   let wav;
@@ -538,7 +637,7 @@ async function afterReading(chunks, mime) {
   setScore(5, "Lecture envoyée !");
   learnFromReading();
   lock(true);
-  try { bubble("🤖 Compris chef ! Je lis…", 900); SFX.bip(); await wait(900); await totoReads(); }
+  try { bubble("🤖 Compris chef ! Je lis…", 900); face("happy", "joyeux"); SFX.bip(); await wait(900); await totoReads(); }
   finally { lock(false); }
 }
 const pending = [];

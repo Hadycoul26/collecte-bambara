@@ -1,0 +1,49 @@
+{
+ "colonnes": 8,
+ "rangees": 3,
+ "case": [
+  240,
+  320
+ ],
+ "noms": [
+  "neutre",
+  "A",
+  "I",
+  "O",
+  "mi_clos",
+  "clos",
+  "joyeux",
+  "surpris",
+  "pensif",
+  "serieux",
+  "rieur",
+  "triste",
+  "narquois",
+  "fier",
+  "vexe",
+  "pas_compris",
+  "sonne",
+  "aie",
+  "larmes",
+  "peur",
+  "lit",
+  "lit_effort",
+  "triomphe",
+  "sournois"
+ ],
+ "yeux": [
+  [
+   50.029998779296875,
+   155.97999572753906
+  ],
+  [
+   193.75,
+   159.7899932861328
+  ]
+ ],
+ "bouche": [
+  122.56999969482422,
+  248.94000244140625
+ ],
+ "coupe": 218.25
+}
