@@ -1,0 +1,53 @@
+name: Fabriquer les répliques de Toto
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [phrases.json, outils/toto_voix.py, .github/workflows/toto.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: toto
+  cancel-in-progress: false
+
+jobs:
+  toto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Récupérer le code du projet IA Bambara (modèle de voix actuel)
+        uses: actions/checkout@v4
+        with:
+          repository: LOSTHADY/IA_Project-
+          ref: claude/focused-goldberg-uvcvdt
+          path: projet
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer la synthèse vocale
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers soundfile numpy pyyaml
+          sudo apt-get install -y ffmpeg >/dev/null || true
+
+      - name: Fabriquer les répliques manquantes
+        env:
+          PYTHONPATH: projet
+        run: python outils/toto_voix.py .
+
+      - name: Enregistrer les répliques dans le dépôt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add toto toto.json
+          if git diff --cached --quiet; then echo "Rien de nouveau."; exit 0; fi
+          git commit -m "Répliques de Toto (bambara_voice / facebook/mms-tts-bam + filtre robot)"
+          git pull --rebase origin main
+          git push
