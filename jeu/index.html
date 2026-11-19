@@ -4,6 +4,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <title>Toto le robot · Apprends-lui le bambara</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f7a52">
+<link rel="icon" type="image/png" href="icones/favicon.png">
+<link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Toto">
 <style>
 :root{color-scheme:light;--ink:#1d1a2b;--bg:#fff4dc;--card:#fffdf6;--line:#e7d3a8;--green:#0f7a52;--red:#c2361f;--blue:#2563c9;--muted:#6b5d4a;--metal:#9fb3c8;--metal2:#6f86a0;--screen:#16233a;--glow:#7cf3c1}
 *{box-sizing:border-box}
@@ -75,6 +82,8 @@ h2{font-size:1rem;margin:.6rem 0 .35rem;text-transform:uppercase;letter-spacing:
 [hidden]{display:none!important}
 .small{font-size:.85rem}
 a{color:var(--green)}
+.install{margin-top:.6rem;width:100%}
+.ios-aide{margin:.5rem 0 0;padding:.6rem .7rem;background:#eef7ef;border-radius:.7rem;color:var(--ink);font-size:.92rem}
 </style>
 <div class="wrap">
   <section id="home">
@@ -86,6 +95,8 @@ a{color:var(--green)}
         <p class="small" id="consent">Ta voix est enregistrée pour entraîner une IA qui parle bambara. L’équipe de recherche peut écouter tes lectures et voir ton pseudo.</p>
         <button id="start" class="big" type="submit">J’accepte, on joue !</button>
       </form>
+      <button class="ghost install" type="button" hidden>📲 Installer le jeu sur mon téléphone</button>
+      <p class="ios-aide" hidden>Sur iPhone : touche <b>Partager</b> <span aria-hidden="true">⬆️</span> en bas de Safari, puis <b>« Sur l’écran d’accueil »</b>.</p>
       <p class="small" id="contact"></p>
     </div>
   </section>
@@ -152,6 +163,8 @@ a{color:var(--green)}
       <p id="end-text"></p>
       <div class="row"><button id="more" class="big">➡️ 10 phrases de plus</button></div>
     </div>
+    <button class="ghost install" type="button" hidden>📲 Installer le jeu sur mon téléphone</button>
+    <p class="ios-aide" hidden>Sur iPhone : touche <b>Partager</b> <span aria-hidden="true">⬆️</span> en bas de Safari, puis <b>« Sur l’écran d’accueil »</b>.</p>
     <p class="small" style="text-align:center;margin-top:1rem"><a href="../">Page de collecte classique</a></p>
   </section>
 </div>
@@ -676,6 +689,26 @@ $("join").onsubmit = async (ev) => {
     state.pseudo = pseudo; saveState(); enterGame(data);
   } catch (e) { alert(e.message); } finally { $("start").disabled = false; }
 };
+// ---------- installer le jeu (appli sur l'écran d'accueil) ----------
+// Android / Chrome : le navigateur propose l'installation (beforeinstallprompt) → notre bouton la déclenche.
+// iPhone : Safari n'a pas cet évènement → le bouton montre comment faire (Partager → Sur l'écran d'accueil).
+(function installation() {
+  const boutons = [...document.querySelectorAll(".install")], aides = [...document.querySelectorAll(".ios-aide")];
+  const installe = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  let invite = null;
+  const montrer = (oui) => boutons.forEach(b => b.hidden = !oui);
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (installe) return;
+  if (ios) montrer(true);
+  addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); invite = e; montrer(true); });
+  addEventListener("appinstalled", () => { invite = null; montrer(false); aides.forEach(a => a.hidden = true); });
+  boutons.forEach(b => b.onclick = async () => {
+    if (invite) { invite.prompt(); const r = await invite.userChoice.catch(() => null); if (r?.outcome === "accepted") montrer(false); invite = null; }
+    else if (ios) aides.forEach(a => a.hidden = !a.hidden);
+  });
+})();
+
 (async function init() {
   if (config.contact) { const a = document.createElement("a"); a.href = "mailto:" + config.contact; a.textContent = "Contacter l’équipe ou retirer mes enregistrements"; $("contact").append(a); }
   if (state.pseudo) $("pseudo").value = state.pseudo;
