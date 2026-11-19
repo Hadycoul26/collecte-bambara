@@ -102,4 +102,18 @@ if __name__ == "__main__":
             made += 1
             if made % 100 == 0:
                 print(made, "répliques", flush=True)
+    # Répliques fixes de Toto (le jeu les joue quand il demande de répéter, etc.)
+    DIT = {"repete": "Segin a kan !", "compris": "N ma a faamu.", "encore": "A kalan tugun !"}
+    for cle, texte in DIT.items():
+        target = out / f"dit_{cle}.mp3"
+        if target.exists():
+            continue
+        torch.manual_seed(7)
+        result = tts(texte)
+        if not len(result.audio):
+            continue
+        result.save(wav)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(wav), "-af", robot,
+                        "-ac", "1", "-b:a", "40k", str(target)], check=True)
+        made += 1
     print("Terminé :", made, "nouvelles répliques")
