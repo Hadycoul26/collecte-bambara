@@ -124,7 +124,6 @@ a{color:var(--green)}
         <button id="rec" class="big">🎙️ Lis la phrase à Toto</button>
         <button id="stop" class="big" hidden style="background:var(--red)">⏹️ J’ai fini</button>
       </div>
-      <div class="row"><button id="model" class="ghost small" type="button">🔊 Je ne sais pas lire ça (écouter)</button></div>
     </div>
 
     <div id="step-judge" hidden>
@@ -407,7 +406,6 @@ function showPhrase() {
   $("syll").textContent = window.syllabesBambara ? window.syllabesBambara(current.text) : "";
   const info = infoFor(current.text);
   $("fr").textContent = info.fr || ""; $("fr-box").hidden = !info.fr;
-  $("model").hidden = !info.a;
   face(damage >= 4 ? "dizzy" : "normal");
   bubble("🤖 Bip ! Lis-moi cette phrase, je vais répéter.", 0);
   show("read"); status("");
@@ -489,7 +487,6 @@ async function upload(prompt, wav, tries = 0) {
 }
 
 $("again").onclick = () => play(lastAudio);
-$("model").onclick = () => { const a = infoFor(current?.text).a; if (a) play("../voix/" + a + ".mp3"); };
 $("more").onclick = async () => {
   $("more").disabled = true;
   try { session = await rpc("more_readings", {}); showPhrase(); }
