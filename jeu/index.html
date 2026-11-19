@@ -83,6 +83,17 @@ h2{font-size:1rem;margin:.6rem 0 .35rem;text-transform:uppercase;letter-spacing:
 .small{font-size:.85rem}
 a{color:var(--green)}
 .install{margin-top:.6rem;width:100%}
+.onglets{display:flex;gap:.4rem;margin:-.2rem 0 .7rem}
+.onglets button{flex:1;min-height:2.6rem;font-size:.95rem;background:#fff;color:var(--muted);border:2px solid var(--line);box-shadow:none}
+.onglets button[aria-selected="true"]{background:var(--green);color:#fff;border-color:var(--green)}
+.genre{display:flex;gap:.5rem;margin:.3rem 0 .2rem}
+.genre label{flex:1;margin:0;display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:3rem;border:2px solid var(--line);border-radius:.8rem;background:#fff;cursor:pointer;font-weight:750}
+.genre input{position:absolute;opacity:0;width:1px;height:1px}
+.genre label:has(input:checked){border-color:var(--green);background:#e6f4ec;color:var(--green)}
+.genre label:has(input:focus-visible){outline:3px solid #9fd4b8}
+input.code{letter-spacing:.6em;font-size:1.4rem;text-align:center;font-weight:800}
+.aide-code{font-size:.82rem;color:var(--muted);margin:.25rem 0 0}
+.erreur{color:var(--red);font-weight:700;min-height:1.2rem;margin:.4rem 0 0}
 .ios-aide{margin:.5rem 0 0;padding:.6rem .7rem;background:#eef7ef;border-radius:.7rem;color:var(--ink);font-size:.92rem}
 </style>
 <div class="wrap">
@@ -90,10 +101,29 @@ a{color:var(--green)}
     <h1>Toto le robot 🤖<br>ne sait pas lire le bambara</h1>
     <p>Lis-lui la phrase à voix haute. Toto la relit sur sa tablette… et il se trompe souvent. Demande-lui de lire quand tu veux, <b>récompense</b>-le ou <b>punis</b>-le. C’est toi qui décides quand passer à la suite.</p>
     <div class="card">
+      <div class="onglets" role="tablist">
+        <button type="button" role="tab" id="tab-new" aria-selected="true">Nouveau joueur</button>
+        <button type="button" role="tab" id="tab-back" aria-selected="false">J’ai déjà un compte</button>
+      </div>
       <form id="join">
-        <label>Ton pseudo <input id="pseudo" required maxlength="40" autocomplete="nickname" placeholder="ex. Awa du 3e"></label>
+        <label>Ton pseudo <input id="pseudo" required minlength="2" maxlength="40" autocomplete="nickname" placeholder="ex. Awa du 3e"></label>
+        <div class="genre" role="radiogroup" aria-label="Tu es">
+          <label><input type="radio" name="genre" value="m" required>👦 Homme</label>
+          <label><input type="radio" name="genre" value="f">👧 Femme</label>
+        </div>
+        <label>Ton code secret (4 chiffres)
+          <input id="code" class="code" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password" placeholder="••••"></label>
+        <p class="aide-code">Retiens-le : avec ton pseudo, il te permet de retrouver ton compte sur un autre téléphone.</p>
         <p class="small" id="consent">Ta voix est enregistrée pour entraîner une IA qui parle bambara. L’équipe de recherche peut écouter tes lectures et voir ton pseudo.</p>
+        <p class="erreur" id="err-new" role="alert"></p>
         <button id="start" class="big" type="submit">J’accepte, on joue !</button>
+      </form>
+      <form id="back" hidden>
+        <label>Ton pseudo <input id="pseudo-back" required maxlength="40" autocomplete="username" placeholder="ex. Awa du 3e"></label>
+        <label>Ton code secret
+          <input id="code-back" class="code" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" placeholder="••••"></label>
+        <p class="erreur" id="err-back" role="alert"></p>
+        <button id="start-back" class="big" type="submit">Retrouver mon compte</button>
       </form>
       <button class="ghost install" type="button" hidden>📲 Installer le jeu sur mon téléphone</button>
       <p class="ios-aide" hidden>Sur iPhone : touche <b>Partager</b> <span aria-hidden="true">⬆️</span> en bas de Safari, puis <b>« Sur l’écran d’accueil »</b>.</p>
@@ -209,7 +239,7 @@ async function token(create = false) {
   const s = read(KEY);
   if (s?.access_token && s.expires_at > Date.now()/1000 + 45) return s.access_token;
   if (s?.refresh_token) return keep(await (await api("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:{refresh_token:s.refresh_token}})).json());
-  if (!create) throw new Error("Session expirée, recharge la page.");
+  if (!create) throw new Error("Connexion perdue : recharge la page et retrouve ton compte (pseudo + code).");
   return keep(await (await api("/auth/v1/signup",{method:"POST",body:{}})).json());
 }
 async function rpc(name, args) {
@@ -676,18 +706,49 @@ $("more").onclick = async () => {
 
 function enterGame(data) {
   session = data; $("home").hidden = true; $("game").hidden = false;
-  $("who").textContent = "🎮 " + (state.pseudo || "Joueur"); $("score").textContent = state.score;
+  $("who").textContent = (state.genre === "f" ? "👧 " : state.genre === "m" ? "👦 " : "🎮 ") + (state.pseudo || "Joueur"); $("score").textContent = state.score;
+  rpc("keep_account", {}).catch(() => {});        // le compte repart pour un an (s'il a un code)
   setMotivation(.3); drawDamage(); buildTools(); showPhrase();
 }
+// ---------- comptes : pseudo + homme/femme + code à 4 chiffres (collecte-sql/collecte-v4.sql) ----------
+// Un compte = une participation dans la base. Chaque création ou retour ouvre une session NEUVE sur ce téléphone
+// (la base refuse deux comptes sur une même session). La session reste ensuite ouverte : le jeu entre tout seul.
+function onglet(retour) {
+  $("tab-new").setAttribute("aria-selected", String(!retour)); $("tab-back").setAttribute("aria-selected", String(retour));
+  $("join").hidden = retour; $("back").hidden = !retour;
+}
+$("tab-new").onclick = () => onglet(false);
+$("tab-back").onclick = () => { onglet(true); if (!$("pseudo-back").value) $("pseudo-back").value = state.pseudo || ""; };
+for (const id of ["code", "code-back"]) $(id).oninput = (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); };
+async function sessionNeuve() { try { localStorage.removeItem(KEY); } catch {} await token(true); }
+function garderSession() { try { navigator.storage?.persist?.(); } catch {} }
 $("join").onsubmit = async (ev) => {
-  ev.preventDefault(); audioCtx();
-  const pseudo = $("pseudo").value.trim(); if (!pseudo) return;
+  ev.preventDefault(); audioCtx(); $("err-new").textContent = "";
+  const pseudo = $("pseudo").value.trim(), genre = new FormData($("join")).get("genre"), code = $("code").value;
+  if (pseudo.length < 2) return $("err-new").textContent = "Choisis un pseudo d’au moins 2 lettres.";
+  if (!genre) return $("err-new").textContent = "Choisis homme ou femme.";
+  if (!/^\d{4}$/.test(code)) return $("err-new").textContent = "Le code doit faire 4 chiffres.";
   $("start").disabled = true;
   try {
-    await token(true); await dataReady;
-    const data = await rpc("open_readings", {display_name:pseudo, invitation:null, accept_research:true, accept_public:false});
-    state.pseudo = pseudo; saveState(); enterGame(data);
-  } catch (e) { alert(e.message); } finally { $("start").disabled = false; }
+    await sessionNeuve(); await dataReady;
+    const data = await rpc("create_account", {display_name:pseudo, participant_gender:genre, code, accept_public:false});
+    state = {score:0, learned:0, pseudo, genre}; saveState(); garderSession(); enterGame(data);
+  } catch (e) { $("err-new").textContent = e.message; } finally { $("start").disabled = false; }
+};
+$("back").onsubmit = async (ev) => {
+  ev.preventDefault(); audioCtx(); $("err-back").textContent = "";
+  const pseudo = $("pseudo-back").value.trim(), code = $("code-back").value;
+  if (!pseudo) return $("err-back").textContent = "Écris ton pseudo.";
+  if (!/^\d{4}$/.test(code)) return $("err-back").textContent = "Le code doit faire 4 chiffres.";
+  $("start-back").disabled = true;
+  try {
+    await sessionNeuve(); await dataReady;
+    const data = await rpc("login_account", {display_name:pseudo, code});
+    if (data?.erreur) { $("err-back").textContent = data.erreur; $("code-back").value = ""; return; }
+    const nom = data.pseudo || pseudo;
+    if ((state.pseudo || "").toLowerCase() !== nom.toLowerCase()) state = {score:0, learned:0};   // autre joueur : ses points
+    state.pseudo = nom; state.genre = data.genre || ""; saveState(); garderSession(); enterGame(data);
+  } catch (e) { $("err-back").textContent = e.message; } finally { $("start-back").disabled = false; }
 };
 // ---------- installer le jeu (appli sur l'écran d'accueil) ----------
 // Android / Chrome : le navigateur propose l'installation (beforeinstallprompt) → notre bouton la déclenche.
@@ -711,10 +772,12 @@ $("join").onsubmit = async (ev) => {
 
 (async function init() {
   if (config.contact) { const a = document.createElement("a"); a.href = "mailto:" + config.contact; a.textContent = "Contacter l’équipe ou retirer mes enregistrements"; $("contact").append(a); }
-  if (state.pseudo) $("pseudo").value = state.pseudo;
+  // la session est restée ouverte : on rentre directement dans le jeu
   if (read(KEY)) {
-    try { await dataReady; const data = await rpc("open_readings", {}); if (data && state.pseudo) enterGame(data); } catch {}
+    try { await dataReady; const data = await rpc("open_readings", {}); if (data && state.pseudo) return enterGame(data); } catch {}
   }
+  // sinon, déjà venu sur ce téléphone : « J'ai déjà un compte », pseudo déjà écrit
+  if (state.pseudo) { onglet(true); $("pseudo-back").value = state.pseudo; }
 })();
 </script>
 </html>
